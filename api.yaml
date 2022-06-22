@@ -1,0 +1,282 @@
+openapi: 3.0.3
+info:
+  title: API для проведения оплаты по QR-коду через Яндекс.Еду
+  version: 1.3.1
+paths:
+  /v1/payment/pay:
+    post:
+      summary: Оплата заказа
+      description: >-
+        Long Polling запрос. Заврешается когда оплата переходит в терминальный
+        статус. Ключ идемпотентности может состоять из (id организации, номер
+        чека)
+      operationId: PaymentPay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentPayRequest'
+      responses:
+        '200':
+          description: 'Оплата в терминальном статусе, подробнее в поле status'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentPayResponse'
+        '400':
+          description: Ошибка в параметрах запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не пройдена авторизация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Код пользователя не найден или его срок действия истёк
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '408':
+          description: Оплата выполняется слишком долго
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренние ошибки сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/payment/cancel:
+    post:
+      summary: Отмена оплаты
+      description: 'Для отмены заказа нужно использовать токен, полученный при его создании'
+      operationId: PaymentCancel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentCancelRequest'
+      responses:
+        '200':
+          description: Принято к отмене
+        '400':
+          description: Ошибка в параметрах запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не пройдена авторизация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Токен отмены не валиден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Внутренние ошибки сервера
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    PaymentPayRequest:
+      type: object
+      required:
+        - authorization
+        - user_code
+        - idempotency_key
+        - items
+        - mcc
+        - currency
+      properties:
+        authorization:
+          $ref: '#/components/schemas/Authorization'
+        user_code:
+          oneOf:
+            - $ref: '#/components/schemas/UserCode'
+            - $ref: '#/components/schemas/QRCode'
+        idempotency_key:
+          type: string
+          description: Ключ идемпотентности
+        items:
+          $ref: '#/components/schemas/Items'
+        mcc:
+          type: integer
+          description: Код вида торговой точки (Merchant Category Code)
+        currency:
+          $ref: '#/components/schemas/Currency'
+      additionalProperties: false
+    PaymentPayResponse:
+      type: object
+      required:
+        - order_id
+        - status
+        - cancel_token
+      properties:
+        order_id:
+          type: string
+          description: Уникальный ID заказа
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        cancel_token:
+          $ref: '#/components/schemas/CancelToken'
+        error_reason:
+          $ref: '#/components/schemas/Error'
+          description: В случае неудачной оплаты содержит информацию об ошибке
+      additionalProperties: false
+    PaymentCancelRequest:
+      type: object
+      required:
+        - authorization
+        - order_id
+        - cancel_token
+      properties:
+        authorization:
+          $ref: '#/components/schemas/Authorization'
+        order_id:
+          type: string
+          description: Уникальный ID заказа
+        cancel_token:
+          $ref: '#/components/schemas/CancelToken'
+      additionalProperties: false
+    Authorization:
+      type: string
+      description: Авторизационный токен
+      example: 'abcd:62e4d626-80d9-45c8-9085-ee0a3cad1fba'
+    UserCode:
+      type: string
+      description: 'Код пользователя, предъявленный кассиру'
+      example: '123456'
+    QRCode:
+      type: string
+      description: 'QR код пользователя, который сканируется кассой'
+      example: YNDXf8278c15-131d-4185-8bca-308855fa4e92
+    CodeExpiration:
+      type: string
+      description: Время истекания действия кода по UTC
+      example: '2022-02-11 08:22:22.981311'
+    CodeLifetime:
+      type: number
+      description: Оставшееся время жизни кода в секундах
+      example: 180
+    Items:
+      type: array
+      items:
+        $ref: '#/components/schemas/Item'
+      description: Список позиций в чеке
+    Item:
+      type: object
+      required:
+        - price
+        - quantity
+        - vat
+        - title
+        - tin
+      properties:
+        price:
+          $ref: '#/components/schemas/Decimal'
+          description: Цена товара
+        quantity:
+          $ref: '#/components/schemas/Decimal'
+          description: Количество позиций
+        vat:
+          type: string
+          description: Тип НДС
+          enum:
+            - nds_20
+            - nds_18
+            - nds_10
+            - nds_0
+            - nds_none
+            - nds_20_120
+            - nds_18_118
+            - nds_10_110
+        title:
+          type: string
+          description: Наименование товара или услуги
+        tin:
+          type: string
+          description: ИНН поставщика
+      additionalProperties: false
+    ItemsForUser:
+      type: array
+      items:
+        $ref: '#/components/schemas/ItemForUser'
+      description: 'Список позиций в чеке, для отображения у пользователя'
+    ItemForUser:
+      type: object
+      required:
+        - price
+        - quantity
+        - title
+      properties:
+        price:
+          $ref: '#/components/schemas/Decimal'
+          description: Цена товара
+        quantity:
+          $ref: '#/components/schemas/Decimal'
+          description: Количество позиций
+        title:
+          type: string
+          description: Наименование товара или услуги
+      additionalProperties: false
+    Currency:
+      type: string
+      description: Валюта заказа
+      example: RUB
+    Decimal:
+      type: string
+      description: Строка с десятичным числом
+      pattern: ^(\d+)(.\d+)?$
+      example: '1.00'
+    OrderStatus:
+      type: string
+      description: Статус заказа
+      enum:
+        - NEW
+        - COMPLETED
+        - FAILED
+        - USER_CONFIRMATION
+        - IN_PROGRESS
+    OrderId:
+      type: string
+      description: ID заказа
+    CancelToken:
+      type: string
+      description: Токен для отмены заказа
+      example: UUID
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Код ошибки
+          example: INTERNAL_SERVER_ERROR
+        message:
+          type: string
+          description: Сообщение об ошибке
+          example: Error occured
+      additionalProperties: false
+    ErrorResponse:
+      $ref: '#/components/schemas/Error'
